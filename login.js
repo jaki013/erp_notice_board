@@ -1,9 +1,6 @@
-/*
-	login.js :: handles authentication and login functionality.
-*/
-
-const http = require('http');
-const https = require('https');
+/**
+ * login.js :: handles authentication and login functionality of erp.
+ */
 const Promise = require('promise');
 const Axios = require('axios');
 const SetCookie = require('set-cookie-parser');
@@ -19,207 +16,203 @@ const SUCCESS_URL = 'https://erp.iitkgp.ac.in/SSOAdministration/success.htm';
 
 const USER_AGENT = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:70.0) Gecko/20100101 Firefox/70.0';
 
-/**_cookies should be an array */
-function getCookieString(cookies, path = '/IIT_ERP3') {
+const erpSession = require('./session');
 
-	var cookie_str = '';
-
-	//extract path cookies.
-	var path_cookies = [];
-	for (var i = 0; i < cookies.length; i++) {
-		if (cookies[i]['path'] === '/' || cookies[i]['path'] === path) {
-			path_cookies.push(cookies[i]);
-		}
-	}
-
-	if (path_cookies.length < 1) return cookie_str;
-
-	//prepare cookie string.
-	for (var i = 0; i < path_cookies.length; i++) {
-		cookie_str += path_cookies[i]['name'] + '=' + path_cookies[i]['value'];
-		if (i != path_cookies.length - 1) {
-			cookie_str += ';';
-		}
-	}
-
-	return cookie_str;
-}
-
-/**log request, response */
-function log_req_res(res) {
-
-	console.log('\n\n');
-	console.log(res.request._header);
-	``
-	console.log(res.status, res.statusText);
-	console.log(res.headers);
-	console.log('\n\n');
-}
-
-var erp_cookies = [];
-
-exports.login_erp = function () {
+exports.loginERP = function(){
 
 	return new Promise((resolve, reject) => {
 
-		/**STEP 1 : request to home_url /IIT_ERP3 */
+		/**STEP 1: GET /IIT_ERP3 for dynamic_url */
 		Axios({
-			url: HOME_URL,
-			method: 'GET',
-			maxRedirects: 0,
-			validateStatus: function (status) {
-				return status >= 200 && status < 400
+			url : HOME_URL, 
+			method : 'GET',
+			maxRedirects : 0,
+			validateStatus : (status) => (status >= 200 && status < 400),
+			headers : {
+				'User-Agent' : USER_AGENT,
 			},
-			proxy: false,
+			proxy : false,
 
 		}).then((res) => {
 
-			var _jsessCookie_erp3 = SetCookie.parse(res);
-			erp_cookies = erp_cookies.concat(_jsessCookie_erp3);
-			// console.log(erp_cookies);
+			//save cookies
+			let  _jsessCookie_erp3 = SetCookie.parse(res);
+			erpSession.saveCookies(_jsessCookie_erp3);
+			// erp_cookies = erp_cookies.concat(_jsessCookie_erp3);
+			
+			let dynamic_url = res.headers.location;
+			erpSession.saveDynamiURL(dynamic_url);
 
-			var dynamic_url = res.headers.location;
-			// console.log(dynamic_url);
-			// var parsed = QueryString.parseUrl(dynamic_url);
-			// console.log(parsed);
-
-			/**STEP 2 : redirect to dynamic url */
-			Axios({
-				url: dynamic_url,
-				method: 'GET',
-				maxRedirects: 0,
-				validateStatus: function (status) {
-					return status >= 200 && status < 400
-				},
-				proxy: false,
-
-			}).then((res) => {
-
-				// log_req_res(res);
-				var _jsessCookie_sso = SetCookie.parse(res);
-				erp_cookies = erp_cookies.concat(_jsessCookie_sso);
-				// console.log(erp_cookies);
-
-				//get user_id i.e roll number.
-				var user_id = ReadLineSync.question('roll_number?_');
-
-				/**STEP 3 : POST to /SSOAdministration/getSecurityQues.htm */
-				Axios({
-					url: SECURITY_QUESTION_URL,
-					method: 'POST',
-					data: QueryString.stringify({
-						user_id: user_id,
-					}),
-					headers: {
-						'Cookie': getCookieString(erp_cookies, path = '/SSOAdministration'),
-					},
-					proxy: false,
-
-				}).then((res) => {
-
-					// log_req_res(res);
-
-					var security_question = res.data;
-					// console.log(security_question);
-
-					var password = ReadLineSync.question('password?_', {
-						hideEchoBack: true
-					});
-					var answer = ReadLineSync.question(security_question + '?_', {
-						hideEchoBack: true
-					});
-
-
-
-
-					/**STEP 4 : POST to /SSOAdministration/auth.htm */
-					Axios({
-						url: AUTH_URL,
-						method: 'POST',
-						data: QueryString.stringify({
-							user_id: user_id,
-							password: password,
-							answer: answer,
-							sessionToken: QueryString.parseUrl(dynamic_url).query.sessionToken,
-							requestedUrl: QueryString.parseUrl(dynamic_url).query.requestedUrl,
-						}),
-						headers: {
-							'Cookie': getCookieString(erp_cookies, path = '/SSOAdministration'),
-						},
-						maxRedirects: 0,
-						validateStatus: function (status) {
-							return status >= 200 && status < 400
-						},
-						proxy: false,
-
-					}).then((res) => {
-
-						// log_req_res(res);
-
-						/**STEP 5 : GET /SSOAdministration/success.htm */
-						Axios({
-							url: SUCCESS_URL,
-							method: 'GET',
-							headers: {
-								'Cookie': getCookieString(erp_cookies, path = '/SSOAdministration'),
-								'Referer': dynamic_url,
-								'User-Agent': USER_AGENT,
-							},
-							maxRedirects: 0,
-							validateStatus: function (status) {
-								return status >= 200 && status < 400
-							},
-							proxy: false,
-
-						}).then((res) => {
-
-							// log_req_res(res);
-							var _ssoTokenCookie = SetCookie.parse(res);
-							erp_cookies = erp_cookies.concat(_ssoTokenCookie);
-
-							var dynamic_auth_url = res.headers.location;
-
-							/**STEP 6 : redirect to dynamic auth url */
-							Axios({
-								url: dynamic_auth_url,
-								method: 'GET',
-								headers: {
-									'Cookie': getCookieString(erp_cookies, path = '/IIT_ERP3'),
-								},
-								maxRedirects: 0,
-								proxy: false,
-
-							}).then((res) => {
-								// log_req_res(res);
-
-								var _jsIDCookie = SetCookie.parse(res);
-								erp_cookies = erp_cookies.concat(_jsIDCookie);
-
-								resolve(erp_cookies);
-
-							}).catch((err) => {
-								console.error(err);
-							})
-
-						}).catch((err) => {
-							console.error(err);
-						})
-
-					}).catch((err) => {
-						console.error(err);
-					})
-
-				}).catch((err) => {
-					console.error(err);
-				})
-
-			}).catch((err) => {
-				console.error(err);
-			})
+			resolve(dynamic_url);
 
 		}).catch((err) => {
-			console.error(err);
+
+			console.error('error in STEP 1 : ** GET /IIT_ERP3 **');
+			reject(err);
 		})
 
-	});
+	}).then((dynamic_url) => {
+
+		/**STEP 2: redirect to dynamic_url */
+		return new Promise((resolve, reject) => {
+			Axios({
+				url : dynamic_url,
+				method : 'GET',
+				maxRedirects : 0,
+				validateStatus : (status) => (status >= 200 && status < 400),
+				headers : {
+					'User-Agent' : USER_AGENT,
+				},
+				proxy: false,
+	
+			}).then((res) => {
+	
+				//save cookies
+				let _jsessCookie_sso = SetCookie.parse(res);
+				erpSession.saveCookies(_jsessCookie_sso);
+				// erp_cookies = erp_cookies.concat(_jsessCookie_sso);
+	
+				var user_id = ReadLineSync.question('roll_number?_'); //get roll number
+				resolve(user_id);
+
+			}).catch((err) => {
+
+				console.error('error in STEP 2 : ** redirecting to dynamic url ** ');
+				reject(err);
+			})
+		})
+		
+	}).then((user_id) => {
+
+		/**STEP 3 : get security question and read password and answer */
+		return new Promise((resolve, reject) => {
+			Axios({
+				url: SECURITY_QUESTION_URL,
+				method: 'POST',
+				data: QueryString.stringify({
+					user_id: user_id,
+				}),
+				headers: {
+					'Cookie': erpSession.getCookieString(path = '/SSOAdministration'),
+					'User-Agent' : USER_AGENT,
+				},
+				proxy: false,
+	
+			}).then((res) => {
+	
+				let security_question = res.data;
+				
+				let password = ReadLineSync.question('password?_', { hideEchoBack: true }); //get password
+				let answer = ReadLineSync.question(security_question + '?_', { hideEchoBack: true }); //get security question answer
+				erpSession.saveCredentials([user_id, password, answer]);
+				resolve([user_id, password, answer]);
+
+			}).catch((err) => {
+
+				console.error('error in STEP 3 : ** getting security question ** ');
+				reject(err);
+			})
+		})
+
+	}).then((credentials) => {
+
+		let user_id = credentials[0];
+		let password = credentials[1];
+		let answer = credentials[2];
+
+		/**STEP 4 : POST to /SSOAdministration/auth.htm */
+		return new Promise((resolve, reject) => {
+			Axios({
+				url: AUTH_URL,
+				method: 'POST',
+				data: QueryString.stringify({
+					user_id: user_id,
+					password: password,
+					answer: answer,
+					sessionToken: QueryString.parseUrl(erpSession.dynamic_url).query.sessionToken,
+					requestedUrl: QueryString.parseUrl(erpSession.dynamic_url).query.requestedUrl,
+				}),
+				headers: {
+					'Cookie': erpSession.getCookieString(path = '/SSOAdministration'),
+					'User-Agent' : USER_AGENT,
+				},
+				maxRedirects: 0,
+				validateStatus: (status) => (status >= 200 && status < 400),
+				proxy: false,
+			
+			}).then((res) => {
+				resolve();
+
+			}).catch((err) => {
+
+				console.error('error in STEP 4 ** posting credentials to /SSOAdminstration/auth.htm ** ');
+				reject(err);
+			})
+		})
+					
+	}).then(() => {
+
+		/**STEP 5 : GET /SSOAdministration/success.htm */
+		return new Promise((resolve, reject) => {
+			Axios({
+				url: SUCCESS_URL,
+				method: 'GET',
+				headers: {
+					'Cookie': erpSession.getCookieString(path = '/SSOAdministration'),
+					'Referer': erpSession.dynamic_url,
+					'User-Agent': USER_AGENT,
+				},
+				maxRedirects: 0,
+				validateStatus: (status) => (status >= 200 && status < 400),
+				proxy: false,
+	
+			}).then((res) => {
+
+				let _ssoTokenCookie = SetCookie.parse(res);
+				erpSession.saveCookies(_ssoTokenCookie);
+				// erp_cookies = erp_cookies.concat(_ssoTokenCookie);
+
+				let dynamic_auth_url = res.headers.location;
+				erpSession.saveDynamicAuthURL(dynamic_auth_url);
+				resolve(dynamic_auth_url);
+
+			}).catch((err) => {
+
+				console.error('error in STEP 5 ** getting dynamic_auth _url ** ');
+				reject(err);
+			})
+		})
+		
+	}).then((dynamic_auth_url) => {
+
+		/**STEP 6 : redirect to dynamic auth url */
+		return new Promise((resolve, reject) => {
+			Axios({
+				url: dynamic_auth_url,
+				method: 'GET',
+				headers: {
+					'Cookie': erpSession.getCookieString(path = '/IIT_ERP3'),
+					'User-Agent' : USER_AGENT,
+				},
+				maxRedirects: 0,
+				proxy: false,
+	
+			}).then((res) => {
+				// log_req_res(res);
+	
+				var _jsIDCookie = SetCookie.parse(res);
+				erpSession.saveCookies(_jsIDCookie);
+				resolve();
+
+			}).catch((err) => {
+
+				console.error('error in STEP 6 ** redirecting to dynamic_auth_url **');
+				reject(err);
+			})
+		})	
+
+	}).catch((err) => {
+		console.error(err);
+		reject(err);
+	})
 }
